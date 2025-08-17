@@ -3,6 +3,7 @@ use clap::Parser;
 use crate::cli::Cli;
 
 mod cli;
+mod item;
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();

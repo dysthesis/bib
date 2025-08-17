@@ -71,6 +71,11 @@
           '';
 
           nativeBuildInputs = with pkgs; [
+            nixd
+            alejandra
+            nixfmt
+            statix
+            deadnix
             rustToolchains.stable
             cargo
             rustc
