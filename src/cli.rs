@@ -5,16 +5,12 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
-    /// Sets a custom config file
-    #[arg(short, long, value_name = "FILE")]
-    config: Option<PathBuf>,
-
     #[command(subcommand)]
-    command: Option<Commands>,
+    pub command: Command,
 }
 
 #[derive(Subcommand, Debug)]
-pub enum Commands {
+pub enum Command {
     /// Fetch the information on one or more citation items
     Fetch {
         #[arg(value_name = "SRC")]
