@@ -6,12 +6,12 @@ use std::time::{Duration, Instant};
 
 use crate::{
     cli::{Cli, Source},
-    translator::{Translator, doi::DoiTranslator},
+    identifier::{Identifier, doi::Doi},
 };
 
 mod cli;
+mod identifier;
 mod registry;
-mod translator;
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
@@ -56,7 +56,7 @@ fn main() -> anyhow::Result<()> {
                 let txc = tx.clone();
                 let handle = std::thread::spawn(move || {
                     // Parse within the thread so the translator can borrow from `id`.
-                    let result: Result<String, String> = match DoiTranslator::parse(&id) {
+                    let result: Result<String, String> = match Doi::parse(&id) {
                         Some(translator) => {
                             pb.set_position(10);
                             // We can't track network progress with ureq; mark as in-progress.
