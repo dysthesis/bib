@@ -84,6 +84,7 @@
             cargo-expand
             cargo-tarpaulin
             rust-analyzer
+            bibiman
           ];
 
           # Environment variable inside the shell

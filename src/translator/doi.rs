@@ -24,42 +24,38 @@ pub struct DoiTranslator<'a> {
 
 impl<'a> Translator<'a> for DoiTranslator<'a> {
     fn parse(identifier: &'a str) -> Option<Self> {
-        let mut identifier = identifier.trim();
+        let mut s = identifier.trim();
 
-        if let Some(rest) = identifier
+        // Normalise common textual prefixes.
+        if let Some(rest) = s
             .strip_prefix("doi:")
-            .or_else(|| identifier.strip_prefix("DOI:"))
-            .or_else(|| identifier.strip_prefix("urn:doi:"))
-            .or_else(|| identifier.strip_prefix("URN:DOI:"))
+            .or_else(|| s.strip_prefix("DOI:"))
+            .or_else(|| s.strip_prefix("urn:doi:"))
+            .or_else(|| s.strip_prefix("URN:DOI:"))
         {
-            identifier = rest.trim_start();
+            s = rest.trim_start();
         }
 
-        if let Some(rest) = identifier
-            .strip_prefix("https://doi.org/")
-            .or_else(|| identifier.strip_prefix("http://doi.org/"))
-            .or_else(|| identifier.strip_prefix("https://dx.doi.org/"))
-            .or_else(|| identifier.strip_prefix("http://dx.doi.org/"))
-        {
-            identifier = rest;
+        // Drop query string or fragment early if present.
+        if let Some(idx) = s.find(['?', '#']) {
+            s = &s[..idx];
         }
 
-        if let Some(idx) = identifier.find(['?', '#']) {
-            identifier = &identifier[..idx];
-        }
-
-        identifier = identifier.trim_end_matches(|c: char| {
+        // Trim trailing punctuation commonly found in prose.
+        s = s.trim_end_matches(|c: char| {
             matches!(c, '.' | ',' | ';' | ':' | ')' | ']' | '}' | '\"' | '\'')
         });
 
-        static DOI_RE: Lazy<Regex> =
-            Lazy::new(|| Regex::new(r"^(10\.\d{4,}(?:\.\d+)*)(/([^\p{C}]+))$").unwrap());
+        // Key change: find a DOI anywhere, not just when the whole string is a DOI.
+        // Case-insensitive, based on Crossref guidance.
+        static DOI_ANYWHERE_RE: Lazy<Regex> =
+            Lazy::new(|| Regex::new(r"(?i)\b(10\.\d{4,9})/([-._;()/:A-Z0-9]+)\b").unwrap());
 
-        let caps = DOI_RE.captures(identifier)?;
+        let caps = DOI_ANYWHERE_RE.captures(s)?;
 
-        let name = caps.get(0)?.as_str();
+        let name = caps.get(0)?.as_str(); // full DOI
         let prefix = caps.get(1)?.as_str();
-        let suffix = caps.get(3)?.as_str();
+        let suffix = caps.get(2)?.as_str();
 
         Some(DoiTranslator {
             name,

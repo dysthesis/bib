@@ -8,7 +8,7 @@ anyhow = { version = "1.0.99", default-features = false }
 biblatex = "0.10.0"
 chrono = "0.4.41"
 citeworks-csl = "0.3.0"
-clap = { version = "4.5.45", default-features = false, features = ["derive", "color", "debug", "std", "help"] }
+clap = { version = "4.5.45", default-features = false, features = ["derive", "color", "std", "help"] }
 once_cell = "1.21.3"
 percent-encoding = "2.3.1"
 regex = "1.11.1"
