@@ -3,3 +3,4 @@ result
 out
 target/
 proptest-regressions/
+.docs-cache/
