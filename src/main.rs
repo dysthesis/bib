@@ -1,17 +1,16 @@
+use biblatex::Entry;
 use clap::Parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use owo_colors::OwoColorize;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use crate::{
-    cli::{Cli, Source},
-    identifier::{Identifier, doi::Doi},
-};
+use crate::cli::{Cli, Source};
+use crate::resolver::resolve;
 
 mod cli;
 mod identifier;
-mod registry;
+mod resolver;
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
@@ -41,7 +40,7 @@ fn main() -> anyhow::Result<()> {
 
             // Spawn resolver threads; each gets its own progress bar and updates the root.
             let mut handles = Vec::with_capacity(total);
-            let (tx, rx) = mpsc::channel::<(usize, Result<String, String>)>();
+            let (tx, rx) = mpsc::channel::<(usize, anyhow::Result<String>)>();
             for (idx, id) in jobs.into_iter().enumerate() {
                 let pb = mp.add(ProgressBar::new(100));
                 pb.set_style(
@@ -56,24 +55,10 @@ fn main() -> anyhow::Result<()> {
                 let txc = tx.clone();
                 let handle = std::thread::spawn(move || {
                     // Parse within the thread so the translator can borrow from `id`.
-                    let result: Result<String, String> = match Doi::parse(&id) {
-                        Some(translator) => {
-                            pb.set_position(10);
-                            // We can't track network progress with ureq; mark as in-progress.
-                            pb.set_position(50);
-                            match translator.resolve() {
-                                Ok(entry) => {
-                                    pb.set_position(100);
-                                    Ok(entry.to_biblatex_string())
-                                }
-                                Err(e) => Err(format!("{}: {}", id, e)),
-                            }
-                        }
-                        None => Err(format!("Unrecognized identifier: {}", id)),
-                    };
+                    let result: anyhow::Result<Entry> = resolve(&id);
                     // Clear the per-task bar and report back to main.
                     pb.finish_and_clear();
-                    let _ = txc.send((idx, result));
+                    let _ = txc.send((idx, result.map(|e| e.to_biblatex_string())));
                     root_bar.inc(1);
                 });
                 handles.push(handle);
@@ -82,7 +67,7 @@ fn main() -> anyhow::Result<()> {
 
             // Collect results in input order.
             let mut ok_results: Vec<Option<String>> = vec![None; total];
-            let mut errors: Vec<String> = Vec::new();
+            let mut errors: Vec<anyhow::Error> = Vec::new();
             for _ in 0..total {
                 if let Ok((idx, res)) = rx.recv() {
                     match res {
@@ -142,7 +127,7 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("{}  •  {}  •  {}  •  {}", ok_s, fail_s, total_s, time_s);
             }
         }
-        cli::Command::Pull { from } => todo!(),
+        cli::Command::Pull { from: _ } => todo!(),
     }
     Ok(())
 }

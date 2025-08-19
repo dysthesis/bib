@@ -4,7 +4,7 @@ use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use regex::Regex;
 use url::Url;
 
-use crate::identifier::Identifier;
+use crate::{identifier::Identifier, resolver::IdFamily};
 const PATH_SEGMENT_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b' ')
     .add(b'"')
@@ -17,13 +17,13 @@ const PATH_SEGMENT_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b'}');
 
 pub struct Doi<'a> {
-    name: &'a str,
+    _name: &'a str,
     prefix: &'a str,
     suffix: &'a str,
 }
 
 impl<'a> Identifier<'a> for Doi<'a> {
-    fn parse(identifier: &'a str) -> Option<Self> {
+    fn parse(identifier: &'a str) -> Option<Box<Self>> {
         let mut s = identifier.trim();
 
         // Normalise common textual prefixes.
@@ -57,11 +57,11 @@ impl<'a> Identifier<'a> for Doi<'a> {
         let prefix = caps.get(1)?.as_str();
         let suffix = caps.get(2)?.as_str();
 
-        Some(Doi {
-            name,
+        Some(Box::new(Doi {
+            _name: name,
             prefix,
             suffix,
-        })
+        }))
     }
 
     fn resolve(&self) -> anyhow::Result<Entry> {
@@ -92,4 +92,8 @@ impl<'a> Doi<'a> {
         let enc_suffix = utf8_percent_encode(self.suffix, PATH_SEGMENT_ENCODE_SET).to_string();
         Url::parse(format!("https://doi.org/{}/{}", self.prefix, enc_suffix).as_str()).unwrap()
     }
+}
+
+impl IdFamily for Doi<'_> {
+    type For<'a> = Doi<'a>;
 }
