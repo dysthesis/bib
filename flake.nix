@@ -83,8 +83,10 @@
             cargo-watch
             cargo-expand
             cargo-tarpaulin
+            cargo-nextest
             rust-analyzer
             bibiman
+            npins
           ];
 
           # Environment variable inside the shell

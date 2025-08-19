@@ -54,3 +54,36 @@ impl FromStr for Source {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn from_str_identifies_existing_file() {
+        let tmp = NamedTempFile::new().expect("tmp file");
+        let path = tmp.path().to_path_buf();
+        let src = Source::from_str(path.to_str().unwrap()).expect("parse");
+        match src {
+            Source::File(p) => {
+                let can = std::fs::canonicalize(&path).unwrap();
+                assert_eq!(p, can);
+            }
+            _ => panic!("expected file source"),
+        }
+    }
+
+    #[test]
+    fn from_str_falls_back_to_identifier() {
+        proptest::proptest!(|(s in "[A-Za-z0-9._-]{1,32}")| {
+            let path = PathBuf::from(&s);
+            proptest::prop_assume!(!path.exists());
+            let src = Source::from_str(&s).expect("parse");
+            match src {
+                Source::Identifier(id) => proptest::prop_assert_eq!(id, s),
+                Source::File(_) => proptest::prop_assert!(false, "should not be a file"),
+            }
+        })
+    }
+}

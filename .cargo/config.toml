@@ -1,0 +1,4 @@
+[env]
+# Run every proptest with 1,000,000 cases unless overridden locally
+PROPTEST_CASES = "1000000"
+

@@ -146,3 +146,62 @@ fn format_duration(d: Duration) -> String {
         format!("{ms}ms")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // Use qualified macros to avoid unused-imports warnings.
+
+    fn expected_format(d: Duration) -> String {
+        if d.as_secs() >= 60 {
+            let m = d.as_secs() / 60;
+            let s = d.as_secs() % 60;
+            format!("{m}m {s:02}s")
+        } else if d.as_secs() >= 1 {
+            let s = d.as_secs();
+            let ms = d.subsec_millis();
+            format!("{s}.{ms:03}s")
+        } else {
+            let ms = d.as_millis();
+            format!("{ms}ms")
+        }
+    }
+
+    #[test]
+    fn format_under_one_second() {
+        proptest::proptest!(|(ms in 0u128..1000u128)| {
+            let d = Duration::from_millis(ms as u64);
+            let got = format_duration(d);
+            let exp = expected_format(d);
+            proptest::prop_assert_eq!(got, exp);
+        })
+    }
+
+    #[test]
+    fn format_between_one_and_sixty_seconds() {
+        proptest::proptest!(|(secs in 1u64..60u64, nanos in 0u32..1_000_000_000u32)| {
+            let d = Duration::new(secs.min(59), nanos);
+            let got = format_duration(d);
+            let exp = expected_format(d);
+            proptest::prop_assert_eq!(got, exp);
+        })
+    }
+
+    #[test]
+    fn format_sixty_seconds_and_over() {
+        proptest::proptest!(|(total_secs in 60u64..10_000u64)| {
+            let d = Duration::from_secs(total_secs);
+            let got = format_duration(d);
+            let exp = expected_format(d);
+            proptest::prop_assert_eq!(got, exp);
+        })
+    }
+
+    #[test]
+    fn boundary_checks() {
+        let d59 = Duration::from_millis(59_999);
+        assert_eq!(format_duration(d59), "59.999s");
+        let d60 = Duration::from_secs(60);
+        assert_eq!(format_duration(d60), "1m 00s");
+    }
+}
