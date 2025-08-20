@@ -49,10 +49,9 @@ impl<'a> Identifier<'a> for Arxiv<'a> {
                 if let Some((base, _frag)) = comps.split_once('#') {
                     comps = base;
                 }
-                if comps.starts_with("abs/") {
-                    s = &comps[4..];
-                } else if comps.starts_with("pdf/") {
-                    let p = &comps[4..];
+                if let Some(rest) = comps.strip_prefix("abs/") {
+                    s = rest;
+                } else if let Some(p) = comps.strip_prefix("pdf/") {
                     s = p.strip_suffix(".pdf").unwrap_or(p);
                 } else if comps.starts_with("find/")
                     || comps.starts_with("list/")
@@ -202,12 +201,11 @@ fn parse_atom_entry(xml: &str, id: &str) -> anyhow::Result<ArxivMeta> {
                     }
                 } else if in_entry && is_local(e.name().as_ref(), "link") {
                     let rel = get_attr_value(&e, b"rel");
-                    if matches!(rel.as_deref(), Some("related")) {
-                        if let Some(href) = get_attr_value(&e, b"href") {
-                            if let Some(doi) = extract_doi_from_url(&href) {
-                                published_doi.get_or_insert(doi);
-                            }
-                        }
+                    if matches!(rel.as_deref(), Some("related"))
+                        && let Some(href) = get_attr_value(&e, b"href")
+                        && let Some(doi) = extract_doi_from_url(&href)
+                    {
+                        published_doi.get_or_insert(doi);
                     }
                 }
                 cur_text.clear();
@@ -262,12 +260,11 @@ fn parse_atom_entry(xml: &str, id: &str) -> anyhow::Result<ArxivMeta> {
                     }
                 } else if in_entry && is_local(e.name().as_ref(), "link") {
                     let rel = get_attr_value(&e, b"rel");
-                    if matches!(rel.as_deref(), Some("related")) {
-                        if let Some(href) = get_attr_value(&e, b"href") {
-                            if let Some(doi) = extract_doi_from_url(&href) {
-                                published_doi.get_or_insert(doi);
-                            }
-                        }
+                    if matches!(rel.as_deref(), Some("related"))
+                        && let Some(href) = get_attr_value(&e, b"href")
+                        && let Some(doi) = extract_doi_from_url(&href)
+                    {
+                        published_doi.get_or_insert(doi);
                     }
                 }
             }
@@ -331,7 +328,7 @@ fn normalize_ws(s: &str) -> String {
 fn build_biblatex(meta: &ArxivMeta, id: &str, version: Option<&str>, legacy: bool) -> String {
     let key = format!("arXiv:{}", id);
     let url = format!("https://arxiv.org/abs/{}", id);
-    let pdf = format!("https://arxiv.org/pdf/{}.pdf", id);
+    // PDF URL derivable from ID; omitted in BibLaTeX fields.
     let doi = meta
         .published_doi
         .clone()
@@ -340,19 +337,18 @@ fn build_biblatex(meta: &ArxivMeta, id: &str, version: Option<&str>, legacy: boo
     // Map categories to human-readable keywords.
     let mut tags: Vec<String> = Vec::new();
     for term in &meta.categories {
-        if let Some(label) = map_category(term, meta.primary_class.as_deref()) {
-            if !tags.contains(&label) {
-                tags.push(label);
-            }
+        if let Some(label) = map_category(term, meta.primary_class.as_deref())
+            && !tags.contains(&label)
+        {
+            tags.push(label);
         }
     }
     // Ensure primary class-derived tag appears if categories list missed it.
-    if tags.is_empty() {
-        if let Some(pc) = &meta.primary_class {
-            if let Some(label) = map_category(pc, meta.primary_class.as_deref()) {
-                tags.push(label);
-            }
-        }
+    if tags.is_empty()
+        && let Some(pc) = &meta.primary_class
+        && let Some(label) = map_category(pc, meta.primary_class.as_deref())
+    {
+        tags.push(label);
     }
 
     let mut fields = Vec::new();
@@ -369,12 +365,12 @@ fn build_biblatex(meta: &ArxivMeta, id: &str, version: Option<&str>, legacy: boo
     }
     fields.push(format!("doi = {{{}}}", doi));
     fields.push(format!("url = {{{}}}", url));
-    fields.push(format!("eprinttype = {{arXiv}}"));
+    fields.push("eprinttype = {arXiv}".to_string());
     fields.push(format!("eprint = {{{}}}", id));
-    if !legacy {
-        if let Some(class) = meta.primary_class.as_deref().and_then(primary_class_of) {
-            fields.push(format!("eprintclass = {{{}}}", class));
-        }
+    if !legacy
+        && let Some(class) = meta.primary_class.as_deref().and_then(primary_class_of)
+    {
+        fields.push(format!("eprintclass = {{{}}}", class));
     }
     if let Some(v) = version {
         fields.push(format!("eprintversion = {{{}}}", v));
@@ -411,15 +407,31 @@ fn build_biblatex(meta: &ArxivMeta, id: &str, version: Option<&str>, legacy: boo
 }
 
 fn primary_class_of(term: &str) -> Option<&'static str> {
-    // For new-style codes, the primary class is the part before the dot (e.g., cs, math, physics).
-    term.split('.').next().and_then(|t| match t {
-        "cs" => Some("cs"),
-        "math" => Some("math"),
-        "physics" => Some("physics"),
-        "astro-ph" => Some("astro-ph"),
-        "cond-mat" => Some("cond-mat"),
-        "math-ph" => Some("math-ph"),
-        _ => None,
+    // For dot-coded categories, take the archive before the dot.
+    let head = term.split('.').next().unwrap_or(term);
+    Some(match head {
+        // Major archives (comprehensive)
+        "cs" => "cs",
+        "econ" => "econ",
+        "eess" => "eess",
+        "math" => "math",
+        "astro-ph" => "astro-ph",
+        "cond-mat" => "cond-mat",
+        "gr-qc" => "gr-qc",
+        "hep-ex" => "hep-ex",
+        "hep-lat" => "hep-lat",
+        "hep-ph" => "hep-ph",
+        "hep-th" => "hep-th",
+        "math-ph" => "math-ph",
+        "nlin" => "nlin",
+        "nucl-ex" => "nucl-ex",
+        "nucl-th" => "nucl-th",
+        "physics" => "physics",
+        "quant-ph" => "quant-ph",
+        "q-bio" => "q-bio",
+        "q-fin" => "q-fin",
+        "stat" => "stat",
+        _ => return None,
     })
 }
 
@@ -430,12 +442,11 @@ fn map_category(term: &str, primary: Option<&str>) -> Option<String> {
     }
 
     // Try to split into archive and subcategory.
-    if let Some((arch, sub)) = term.split_once('.') {
-        if let (Some(arch_name), Some(sub_name)) =
+    if let Some((arch, _)) = term.split_once('.')
+        && let (Some(arch_name), Some(sub_name)) =
             (ARCHIVE_NAMES.get(arch), SUBCATEGORY_NAMES.get(term))
-        {
-            return Some(format!("{} - {}", arch_name, sub_name));
-        }
+    {
+        return Some(format!("{} - {}", arch_name, sub_name));
     }
 
     // If no mapping, but primary archive known and there is a display name for it, return just the archive name.
@@ -445,29 +456,203 @@ fn map_category(term: &str, primary: Option<&str>) -> Option<String> {
     None
 }
 
-static ARCHIVE_NAMES: Lazy<std::collections::HashMap<&'static str, &'static str>> =
-    Lazy::new(|| {
-        use std::collections::HashMap;
-        let mut m = HashMap::new();
-        m.insert("cs", "Computer Science");
-        m.insert("math", "Mathematics");
-        m.insert("physics", "Physics");
-        m.insert("astro-ph", "Astrophysics");
-        m.insert("cond-mat", "Condensed Matter");
-        m
-    });
+static ARCHIVE_NAMES: Lazy<std::collections::HashMap<&'static str, &'static str>> = Lazy::new(|| {
+    use std::collections::HashMap;
+    let mut m = HashMap::new();
+    // Core archives
+    m.insert("cs", "Computer Science");
+    m.insert("econ", "Economics");
+    m.insert("eess", "Electrical Engineering and Systems Science");
+    m.insert("math", "Mathematics");
+    m.insert("astro-ph", "Astrophysics");
+    m.insert("cond-mat", "Condensed Matter");
+    m.insert("gr-qc", "General Relativity and Quantum Cosmology");
+    m.insert("hep-ex", "High Energy Physics - Experiment");
+    m.insert("hep-lat", "High Energy Physics - Lattice");
+    m.insert("hep-ph", "High Energy Physics - Phenomenology");
+    m.insert("hep-th", "High Energy Physics - Theory");
+    m.insert("math-ph", "Mathematical Physics");
+    m.insert("nlin", "Nonlinear Sciences");
+    m.insert("nucl-ex", "Nuclear Experiment");
+    m.insert("nucl-th", "Nuclear Theory");
+    m.insert("physics", "Physics");
+    m.insert("quant-ph", "Quantum Physics");
+    m.insert("q-bio", "Quantitative Biology");
+    m.insert("q-fin", "Quantitative Finance");
+    m.insert("stat", "Statistics");
+    m
+});
 
 static SUBCATEGORY_NAMES: Lazy<std::collections::HashMap<&'static str, &'static str>> =
     Lazy::new(|| {
         use std::collections::HashMap;
         let mut m = HashMap::new();
-        // A few representative cs.* subfields
+        // Computer Science
+        m.insert("cs.AI", "Artificial Intelligence");
+        m.insert("cs.AR", "Hardware Architecture");
+        m.insert("cs.CC", "Computational Complexity");
+        m.insert("cs.CE", "Computational Engineering, Finance, and Science");
+        m.insert("cs.CG", "Computational Geometry");
         m.insert("cs.CL", "Computation and Language");
+        m.insert("cs.CR", "Cryptography and Security");
+        m.insert("cs.CV", "Computer Vision and Pattern Recognition");
+        m.insert("cs.CY", "Computers and Society");
+        m.insert("cs.DB", "Databases");
+        m.insert("cs.DC", "Distributed, Parallel, and Cluster Computing");
+        m.insert("cs.DL", "Digital Libraries");
+        m.insert("cs.DM", "Discrete Mathematics");
+        m.insert("cs.DS", "Data Structures and Algorithms");
+        m.insert("cs.ET", "Emerging Technologies");
+        m.insert("cs.FL", "Formal Languages and Automata Theory");
+        m.insert("cs.GL", "General Literature");
+        m.insert("cs.GR", "Graphics");
+        m.insert("cs.GT", "Computer Science and Game Theory");
+        m.insert("cs.HC", "Human-Computer Interaction");
+        m.insert("cs.IR", "Information Retrieval");
+        m.insert("cs.IT", "Information Theory");
         m.insert("cs.LG", "Machine Learning");
+        m.insert("cs.LO", "Logic in Computer Science");
+        m.insert("cs.MA", "Multiagent Systems");
+        m.insert("cs.MM", "Multimedia");
+        m.insert("cs.MS", "Mathematical Software");
+        m.insert("cs.NA", "Numerical Analysis"); // alias of math.NA
+        m.insert("cs.NE", "Neural and Evolutionary Computing");
+        m.insert("cs.NI", "Networking and Internet Architecture");
+        m.insert("cs.OH", "Other Computer Science");
+        m.insert("cs.OS", "Operating Systems");
+        m.insert("cs.PF", "Performance");
         m.insert("cs.PL", "Programming Languages");
-        // math.* examples
-        m.insert("math.PR", "Probability");
+        m.insert("cs.RO", "Robotics");
+        m.insert("cs.SC", "Symbolic Computation");
+        m.insert("cs.SD", "Sound");
+        m.insert("cs.SE", "Software Engineering");
+        m.insert("cs.SI", "Social and Information Networks");
+        m.insert("cs.SY", "Systems and Control"); // alias of eess.SY
+
+        // Economics
+        m.insert("econ.EM", "Econometrics");
+        m.insert("econ.GN", "General Economics");
+        m.insert("econ.TH", "Theoretical Economics");
+
+        // Electrical Engineering and Systems Science
+        m.insert("eess.AS", "Audio and Speech Processing");
+        m.insert("eess.IV", "Image and Video Processing");
+        m.insert("eess.SP", "Signal Processing");
+        m.insert("eess.SY", "Systems and Control");
+
+        // Mathematics
+        m.insert("math.AC", "Commutative Algebra");
+        m.insert("math.AG", "Algebraic Geometry");
+        m.insert("math.AP", "Analysis of PDEs");
+        m.insert("math.AT", "Algebraic Topology");
+        m.insert("math.CA", "Classical Analysis and ODEs");
+        m.insert("math.CO", "Combinatorics");
+        m.insert("math.CT", "Category Theory");
+        m.insert("math.CV", "Complex Variables");
+        m.insert("math.DG", "Differential Geometry");
         m.insert("math.DS", "Dynamical Systems");
+        m.insert("math.FA", "Functional Analysis");
+        m.insert("math.GM", "General Mathematics");
+        m.insert("math.GN", "General Topology");
+        m.insert("math.GR", "Group Theory");
+        m.insert("math.GT", "Geometric Topology");
+        m.insert("math.HO", "History and Overview");
+        m.insert("math.IT", "Information Theory"); // alias of cs.IT
+        m.insert("math.KT", "K-Theory and Homology");
+        m.insert("math.LO", "Logic");
+        m.insert("math.MG", "Metric Geometry");
+        m.insert("math.NA", "Numerical Analysis");
+        m.insert("math.NT", "Number Theory");
+        m.insert("math.OA", "Operator Algebras");
+        m.insert("math.OC", "Optimization and Control");
+        m.insert("math.PR", "Probability");
+        m.insert("math.QA", "Quantum Algebra");
+        m.insert("math.RA", "Rings and Algebras");
+        m.insert("math.RT", "Representation Theory");
+        m.insert("math.SG", "Symplectic Geometry");
+        m.insert("math.SP", "Spectral Theory");
+        m.insert("math.ST", "Statistics Theory");
+
+        // Astrophysics (astro-ph)
+        m.insert("astro-ph.CO", "Cosmology and Nongalactic Astrophysics");
+        m.insert("astro-ph.EP", "Earth and Planetary Astrophysics");
+        m.insert("astro-ph.GA", "Astrophysics of Galaxies");
+        m.insert("astro-ph.HE", "High Energy Astrophysical Phenomena");
+        m.insert("astro-ph.IM", "Instrumentation and Methods for Astrophysics");
+        m.insert("astro-ph.SR", "Solar and Stellar Astrophysics");
+
+        // Condensed Matter (cond-mat)
+        m.insert("cond-mat.dis-nn", "Disordered Systems and Neural Networks");
+        m.insert("cond-mat.mes-hall", "Mesoscale and Nanoscale Physics");
+        m.insert("cond-mat.mtrl-sci", "Materials Science");
+        m.insert("cond-mat.other", "Other Condensed Matter");
+        m.insert("cond-mat.quant-gas", "Quantum Gases");
+        m.insert("cond-mat.soft", "Soft Condensed Matter");
+        m.insert("cond-mat.stat-mech", "Statistical Mechanics");
+        m.insert("cond-mat.str-el", "Strongly Correlated Electrons");
+        m.insert("cond-mat.supr-con", "Superconductivity");
+
+        // Nonlinear Sciences (nlin)
+        m.insert("nlin.AO", "Adaptation and Self-Organizing Systems");
+        m.insert("nlin.CD", "Chaotic Dynamics");
+        m.insert("nlin.CG", "Cellular Automata and Lattice Gases");
+        m.insert("nlin.PS", "Pattern Formation and Solitons");
+        m.insert("nlin.SI", "Exactly Solvable and Integrable Systems");
+
+        // Physics (physics.*)
+        m.insert("physics.acc-ph", "Accelerator Physics");
+        m.insert("physics.ao-ph", "Atmospheric and Oceanic Physics");
+        m.insert("physics.app-ph", "Applied Physics");
+        m.insert("physics.atm-clus", "Atomic and Molecular Clusters");
+        m.insert("physics.atom-ph", "Atomic Physics");
+        m.insert("physics.bio-ph", "Biological Physics");
+        m.insert("physics.chem-ph", "Chemical Physics");
+        m.insert("physics.class-ph", "Classical Physics");
+        m.insert("physics.comp-ph", "Computational Physics");
+        m.insert("physics.data-an", "Data Analysis, Statistics and Probability");
+        m.insert("physics.ed-ph", "Physics Education");
+        m.insert("physics.flu-dyn", "Fluid Dynamics");
+        m.insert("physics.gen-ph", "General Physics");
+        m.insert("physics.geo-ph", "Geophysics");
+        m.insert("physics.hist-ph", "History and Philosophy of Physics");
+        m.insert("physics.ins-det", "Instrumentation and Detectors");
+        m.insert("physics.med-ph", "Medical Physics");
+        m.insert("physics.optics", "Optics");
+        m.insert("physics.plasm-ph", "Plasma Physics");
+        m.insert("physics.pop-ph", "Popular Physics");
+        m.insert("physics.soc-ph", "Physics and Society");
+        m.insert("physics.space-ph", "Space Physics");
+
+        // Quantitative Biology
+        m.insert("q-bio.BM", "Biomolecules");
+        m.insert("q-bio.CB", "Cell Behavior");
+        m.insert("q-bio.GN", "Genomics");
+        m.insert("q-bio.MN", "Molecular Networks");
+        m.insert("q-bio.NC", "Neurons and Cognition");
+        m.insert("q-bio.OT", "Other Quantitative Biology");
+        m.insert("q-bio.PE", "Populations and Evolution");
+        m.insert("q-bio.QM", "Quantitative Methods");
+        m.insert("q-bio.SC", "Subcellular Processes");
+        m.insert("q-bio.TO", "Tissues and Organs");
+
+        // Quantitative Finance
+        m.insert("q-fin.CP", "Computational Finance");
+        m.insert("q-fin.EC", "Economics"); // alias of econ.GN
+        m.insert("q-fin.GN", "General Finance");
+        m.insert("q-fin.MF", "Mathematical Finance");
+        m.insert("q-fin.PM", "Portfolio Management");
+        m.insert("q-fin.PR", "Pricing of Securities");
+        m.insert("q-fin.RM", "Risk Management");
+        m.insert("q-fin.ST", "Statistical Finance");
+        m.insert("q-fin.TR", "Trading and Market Microstructure");
+
+        // Statistics
+        m.insert("stat.AP", "Applications");
+        m.insert("stat.CO", "Computation");
+        m.insert("stat.ME", "Methodology");
+        m.insert("stat.ML", "Machine Learning");
+        m.insert("stat.OT", "Other Statistics");
+        m.insert("stat.TH", "Statistics Theory"); // alias of math.ST
         m
     });
 
@@ -475,7 +660,18 @@ static FULL_TERM_LABELS: Lazy<std::collections::HashMap<&'static str, &'static s
     Lazy::new(|| {
         use std::collections::HashMap;
         let mut m = HashMap::new();
+        // Standalone archives / aliases without subcategories
         m.insert("math-ph", "Mathematical Physics");
+        m.insert("gr-qc", "General Relativity and Quantum Cosmology");
+        m.insert("hep-ex", "High Energy Physics - Experiment");
+        m.insert("hep-lat", "High Energy Physics - Lattice");
+        m.insert("hep-ph", "High Energy Physics - Phenomenology");
+        m.insert("hep-th", "High Energy Physics - Theory");
+        m.insert("nucl-ex", "Nuclear Experiment");
+        m.insert("nucl-th", "Nuclear Theory");
+        m.insert("quant-ph", "Quantum Physics");
+        // Aliases expressed as non-dot codes
+        m.insert("math.MP", "Mathematical Physics"); // alias to math-ph
         m
     });
 

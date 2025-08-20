@@ -32,6 +32,7 @@ pub enum Command {
 /// The latter will be treated as a list of the former.
 pub enum Source {
     Identifier(String),
+    #[allow(dead_code)]
     File(PathBuf),
 }
 

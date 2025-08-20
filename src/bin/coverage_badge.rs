@@ -5,7 +5,9 @@ use std::path::Path;
 fn main() -> io::Result<()> {
     let lcov_path = Path::new("target/coverage/lcov.info");
     if !lcov_path.exists() {
-        eprintln!("target/coverage/lcov.info not found.\n\nRun:\n  cargo tarpaulin --out Lcov --output-dir target/coverage\nthen re-run:\n  cargo run --bin coverage-badge\n");
+        eprintln!(
+            "target/coverage/lcov.info not found.\n\nRun:\n  cargo tarpaulin --out Lcov --output-dir target/coverage\nthen re-run:\n  cargo run --bin coverage-badge\n"
+        );
         std::process::exit(2);
     }
 
@@ -17,7 +19,9 @@ fn main() -> io::Result<()> {
             if let Ok(v) = rest.trim().parse::<u64>() {
                 total_found += v;
             }
-        } else if let Some(rest) = line.strip_prefix("LH:") && let Ok(v) = rest.trim().parse::<u64>() {
+        } else if let Some(rest) = line.strip_prefix("LH:")
+            && let Ok(v) = rest.trim().parse::<u64>()
+        {
             total_hit += v;
         }
     }
@@ -81,6 +85,12 @@ fn main() -> io::Result<()> {
     let out_path = out_dir.join("coverage-badge.svg");
     let mut f = fs::File::create(&out_path)?;
     f.write_all(svg.as_bytes())?;
-    eprintln!("Wrote {} ({} / {} lines ≈ {}).", out_path.display(), total_hit, total_found, percent_str);
+    eprintln!(
+        "Wrote {} ({} / {} lines ≈ {}).",
+        out_path.display(),
+        total_hit,
+        total_found,
+        percent_str
+    );
     Ok(())
 }
