@@ -49,9 +49,17 @@ fn main() -> anyhow::Result<()> {
             for (idx, id) in jobs.iter().cloned().enumerate() {
                 let txc = tx.clone();
                 let handle = std::thread::spawn(move || {
-                    // Parse within the thread so the translator can borrow from `id`.
-                    let result: anyhow::Result<Entry> = resolve(&id);
-                    // Report back to main.
+                    // Ensure translator panics do not take down the worker thread.
+                    let result: anyhow::Result<Entry> = match std::panic::catch_unwind(
+                        std::panic::AssertUnwindSafe(|| resolve(&id)),
+                    ) {
+                        Ok(r) => r,
+                        Err(_) => Err(anyhow::anyhow!(
+                            "resolver panicked for identifier: {}",
+                            id
+                        )),
+                    };
+                    // Report back to main regardless of success/failure.
                     let _ = txc.send((idx, result.map(|e| e.to_biblatex_string())));
                 });
                 handles.push(handle);

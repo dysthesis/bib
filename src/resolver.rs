@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use biblatex::Entry;
 
-use crate::identifier::{Identifier, arxiv::Arxiv, doi::Doi};
+use crate::identifier::{Identifier, arxiv::Arxiv, doi::Doi, embedded::Embedded};
 
 type ParserFn = for<'a> fn(&'a str) -> Option<Box<dyn Identifier<'a> + 'a>>;
 
@@ -9,7 +9,7 @@ type ParserFn = for<'a> fn(&'a str) -> Option<Box<dyn Identifier<'a> + 'a>>;
 ///
 /// NOTE: Ordering is important here, as it signifies priority. If two parsers are able to parse a
 /// given identifier, the first one to show up in this list will be used.
-static PARSERS: &[ParserFn] = &[erase::<Doi>(), erase::<Arxiv>()];
+static PARSERS: &[ParserFn] = &[erase::<Doi>(), erase::<Arxiv>(), erase::<Embedded>()];
 
 // Use GAT because we don't have higher-kinded types in Rust (sad)
 pub trait IdFamily {
