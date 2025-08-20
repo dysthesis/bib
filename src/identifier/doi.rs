@@ -114,7 +114,6 @@ mod tests {
         proptest::prop_oneof![uppers, lowers, digits, punct]
     }
 
-
     // Generate a valid DOI suffix that ends with an alphanumeric to satisfy the trailing \b.
     fn doi_suffix(min: usize, max: usize) -> impl Strategy<Value = String> {
         // Ensure last char is alphanumeric
@@ -123,12 +122,11 @@ mod tests {
             proptest::sample::select(('a'..='z').collect::<Vec<_>>()),
             proptest::sample::select(('0'..='9').collect::<Vec<_>>()),
         ];
-        (min..=max)
-            .prop_flat_map(move |len| {
-                if len == 1 {
-                    last.clone().prop_map(|c| c.to_string()).boxed()
-                } else {
-                    (
+        (min..=max).prop_flat_map(move |len| {
+            if len == 1 {
+                last.clone().prop_map(|c| c.to_string()).boxed()
+            } else {
+                (
                     proptest::collection::vec(doi_suffix_char(), len - 1),
                     last.clone(),
                 )
@@ -137,16 +135,19 @@ mod tests {
                         v.into_iter().collect::<String>()
                     })
                     .boxed()
-                }
-            })
+            }
+        })
     }
 
     // Generate a valid DOI core like "10.12345/ABC-123"
     fn doi_core() -> impl Strategy<Value = (String, String, String)> {
         (
             // 4-9 digits after "10."
-            proptest::collection::vec(proptest::sample::select(('0'..='9').collect::<Vec<_>>()), 4..=9)
-                .prop_map(|v| v.into_iter().collect::<String>()),
+            proptest::collection::vec(
+                proptest::sample::select(('0'..='9').collect::<Vec<_>>()),
+                4..=9,
+            )
+            .prop_map(|v| v.into_iter().collect::<String>()),
             doi_suffix(1, 128),
         )
             .prop_map(|(digits, suffix)| {
@@ -191,7 +192,7 @@ mod tests {
     // DOI can be embedded in text with optional trailing punctuation; parser should still find it.
     #[test]
     fn parse_finds_embedded_doi() {
-        let trails = vec![".", ",", ";", ":", ")", "]", "}", "\"", "'"]; 
+        let trails = vec![".", ",", ";", ":", ")", "]", "}", "\"", "'"];
         proptest::proptest!(|(t in doi_core(), trail in proptest::option::of(proptest::sample::select(trails.clone())), lead_ws in "[ \t]*", tail_ws in "[ \t]*")| {
             let (full, _p, _s) = t;
             let mut decorated = format!("{}{}{}", lead_ws, full, tail_ws);

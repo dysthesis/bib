@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use biblatex::Entry;
 
-use crate::identifier::{Identifier, doi::Doi};
+use crate::identifier::{Identifier, arxiv::Arxiv, doi::Doi};
 
 type ParserFn = for<'a> fn(&'a str) -> Option<Box<dyn Identifier<'a> + 'a>>;
 
@@ -9,7 +9,7 @@ type ParserFn = for<'a> fn(&'a str) -> Option<Box<dyn Identifier<'a> + 'a>>;
 ///
 /// NOTE: Ordering is important here, as it signifies priority. If two parsers are able to parse a
 /// given identifier, the first one to show up in this list will be used.
-static PARSERS: &[ParserFn] = &[erase::<Doi>()];
+static PARSERS: &[ParserFn] = &[erase::<Doi>(), erase::<Arxiv>()];
 
 // Use GAT because we don't have higher-kinded types in Rust (sad)
 pub trait IdFamily {
@@ -76,7 +76,10 @@ mod tests {
                     proptest::collection::vec(doi_suffix_char(), len - 1),
                     last.clone(),
                 )
-                    .prop_map(|(mut v, last)| { v.push(last); v.into_iter().collect::<String>() })
+                    .prop_map(|(mut v, last)| {
+                        v.push(last);
+                        v.into_iter().collect::<String>()
+                    })
                     .boxed()
             }
         })
@@ -84,8 +87,11 @@ mod tests {
 
     fn doi_core() -> impl Strategy<Value = String> {
         (
-            proptest::collection::vec(proptest::sample::select(('0'..='9').collect::<Vec<_>>()), 4..=9)
-                .prop_map(|v| v.into_iter().collect::<String>()),
+            proptest::collection::vec(
+                proptest::sample::select(('0'..='9').collect::<Vec<_>>()),
+                4..=9,
+            )
+            .prop_map(|v| v.into_iter().collect::<String>()),
             doi_suffix(1, 64),
         )
             .prop_map(|(digits, suffix)| format!("10.{}/{}", digits, suffix))

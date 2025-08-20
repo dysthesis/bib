@@ -1,5 +1,6 @@
 use biblatex::Entry;
 
+pub mod arxiv;
 pub mod doi;
 
 pub trait Identifier<'a>: 'a {
