@@ -27,7 +27,7 @@ fn main() -> anyhow::Result<()> {
                 .collect();
             let total = jobs.len();
 
-            // Set up unified progress UI.
+            // Set up unified progress UI (single spinner + message of current item).
             let mp = MultiProgress::with_draw_target(ProgressDrawTarget::stderr());
             let root = mp.add(ProgressBar::new(jobs.len() as u64));
             root.enable_steady_tick(Duration::from_millis(200));
@@ -36,30 +36,23 @@ fn main() -> anyhow::Result<()> {
                     .unwrap()
                     .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
             );
-            root.set_message("Resolving items...");
+            // We'll update this message with the first non-completed item ID.
+            if let Some(first) = jobs.first() {
+                root.set_message(format!("Resolving: {}", first));
+            } else {
+                root.set_message("Resolving items...");
+            }
 
-            // Spawn resolver threads; each gets its own progress bar and updates the root.
+            // Spawn resolver threads; we remove per-item bars and only update the root bar.
             let mut handles = Vec::with_capacity(total);
             let (tx, rx) = mpsc::channel::<(usize, anyhow::Result<String>)>();
-            for (idx, id) in jobs.into_iter().enumerate() {
-                let pb = mp.add(ProgressBar::new(100));
-                pb.set_style(
-                    ProgressStyle::with_template("{bar:30.green/dim} {percent:>3}% {msg:.dim}")
-                        .unwrap()
-                        .progress_chars("--"),
-                );
-                pb.set_message(format!("DOI: {}", id));
-                pb.set_position(0);
-
-                let root_bar = root.clone();
+            for (idx, id) in jobs.iter().cloned().enumerate() {
                 let txc = tx.clone();
                 let handle = std::thread::spawn(move || {
                     // Parse within the thread so the translator can borrow from `id`.
                     let result: anyhow::Result<Entry> = resolve(&id);
-                    // Clear the per-task bar and report back to main.
-                    pb.finish_and_clear();
+                    // Report back to main.
                     let _ = txc.send((idx, result.map(|e| e.to_biblatex_string())));
-                    root_bar.inc(1);
                 });
                 handles.push(handle);
             }
@@ -68,12 +61,21 @@ fn main() -> anyhow::Result<()> {
             // Collect results in input order.
             let mut ok_results: Vec<Option<String>> = vec![None; total];
             let mut errors: Vec<anyhow::Error> = Vec::new();
+            let mut done: Vec<bool> = vec![false; total];
             for _ in 0..total {
                 if let Ok((idx, res)) = rx.recv() {
                     match res {
                         Ok(s) => ok_results[idx] = Some(s),
                         Err(e) => errors.push(e),
                     }
+                    done[idx] = true;
+                    // Update the root message to the first non-completed item, if any.
+                    if let Some(next_idx) = done.iter().position(|&d| !d)
+                        && let Some(next) = jobs.get(next_idx)
+                    {
+                        root.set_message(format!("Resolving: {}", next));
+                    }
+                    root.inc(1);
                 }
             }
 
