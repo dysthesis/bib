@@ -29,7 +29,12 @@ impl<'a> Identifier<'a> for Embedded {
 
     fn resolve(&self) -> anyhow::Result<Entry> {
         let (final_url, html) = fetch(self.url.clone())?;
-        let base_url = final_url; // may include redirects; used for absolutising
+        // Determine base URL for resolving relative links using <base href> when present
+        let base_url = if let Some(href) = collect_base_href(&html) {
+            absolutise(&final_url, &href).unwrap_or_else(|_| final_url.clone())
+        } else {
+            final_url.clone()
+        };
 
         // Collect signals
         let meta = collect_meta(&html);
@@ -43,7 +48,7 @@ impl<'a> Identifier<'a> for Embedded {
             .iter()
             .find(|l| l.rel.eq_ignore_ascii_case("canonical"))
             .and_then(|l| absolutise(&base_url, &l.href).ok())
-            .unwrap_or_else(|| base_url.clone());
+            .unwrap_or_else(|| final_url.clone());
 
         // HighWire presence
         let has_highwire = meta.iter().any(|m| {
@@ -922,14 +927,29 @@ fn fetch(url: Url) -> anyhow::Result<(Url, String)> {
     let res = req
         .call()
         .with_context(|| format!("failed request for URL {}", url))?;
-    let body = res.into_body().read_to_string().context("read body")?;
-    // Honour <base href> when present for absolutising relative URLs.
-    let base = if let Some(href) = collect_base_href(&body) {
-        absolutise(&url, &href).unwrap_or(url)
+    // Enforce HTML content types
+    let headers = res.headers();
+    if let Some(ctv) = headers.get("content-type")
+        && let Ok(cts) = ctv.to_str()
+    {
+        let cts = cts.to_ascii_lowercase();
+        if !cts.contains("text/html") && !cts.contains("application/xhtml") && !cts.contains("html") {
+            return Err(anyhow::anyhow!(
+                "FetchError: non-HTML content-type for URL {}: {}",
+                url, cts
+            ));
+        }
+    }
+    // Attempt to capture the effective (post-redirect) URL if exposed
+    let effective_url = if let Some(u) = headers.get("x-final-url").and_then(|v| v.to_str().ok()) {
+        Url::parse(u).unwrap_or_else(|_| url.clone())
+    } else if let Some(u) = headers.get("content-location").and_then(|v| v.to_str().ok()) {
+        Url::parse(u).unwrap_or_else(|_| url.clone())
     } else {
-        url
+        url.clone()
     };
-    Ok((base, body))
+    let body = res.into_body().read_to_string().context("read body")?;
+    Ok((effective_url, body))
 }
 
 #[derive(Debug, Clone)]
